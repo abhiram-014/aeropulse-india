@@ -1,0 +1,32 @@
+{
+  "satellite": "INSAT-3DR",
+  "instrument": "IMAGER",
+  "product_name": "3RIMG_L2B_AOD",
+  "observation_time": "2026-09-08T08:14:08.725791+00:00",
+  "spatial_coverage": {
+    "min_latitude": 6.0,
+    "max_latitude": 38.0,
+    "min_longitude": 68.0,
+    "max_longitude": 98.0
+  },
+  "variables": {
+    "aerosol_optical_depth_550nm": {
+      "unit": "dimensionless",
+      "valid_range": [
+        0.0,
+        3.0
+      ],
+      "mean_subcontinent_value": 0.625,
+      "fill_value": -999.0
+    },
+    "cloud_mask": {
+      "unit": "bitmask",
+      "values": [
+        0,
+        1
+      ]
+    }
+  },
+  "data_provider": "Space Applications Centre (SAC), ISRO / MOSDAC",
+  "disclaimer": "INSAT-3DR AOD measures total column aerosol optical thickness and is NOT direct ground-level AQI or PM2.5."
+}

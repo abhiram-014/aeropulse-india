@@ -1,0 +1,18 @@
+{
+  "file": "insat3dr_sample_aod.json",
+  "satellite": "INSAT-3DR",
+  "instrument": "IMAGER",
+  "product": "L2B_AOD_AEROSOL_OPTICAL_DEPTH",
+  "variable": "aerosol_optical_depth_550nm",
+  "resolution": "4.0 km",
+  "mean_aod": 0.584,
+  "bounding_box": {
+    "min_lat": 6.0,
+    "max_lat": 38.0,
+    "min_lon": 68.0,
+    "max_lon": 98.0
+  },
+  "timestamp": "2026-09-08T08:18:54.166673+00:00",
+  "status": "ingested_successfully",
+  "scientific_note": "Aerosol Optical Depth (AOD) is a columnar optical measurement and does NOT directly represent ground-level PM2.5 or AQI."
+}

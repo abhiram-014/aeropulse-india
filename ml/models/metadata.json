@@ -1,0 +1,43 @@
+{
+  "model_version": "HistGBM-PM25-v1.4",
+  "model_type": "Histogram-based Gradient Boosted Trees (scikit-learn)",
+  "target": "PM2.5 Concentration (\u00b5g/m\u00b3)",
+  "features": [
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
+    "month_sin",
+    "month_cos",
+    "is_weekend",
+    "temperature",
+    "relative_humidity",
+    "wind_speed",
+    "wind_u",
+    "wind_v",
+    "ventilation_index",
+    "insat_aod",
+    "pm25_lag_1h",
+    "pm25_lag_2h",
+    "pm25_lag_3h",
+    "pm25_lag_6h",
+    "pm25_lag_12h",
+    "pm25_lag_24h",
+    "pm25_roll_mean_3h",
+    "pm25_roll_std_3h",
+    "pm25_roll_mean_6h",
+    "pm25_roll_mean_24h"
+  ],
+  "metrics": {
+    "mae": 6.93,
+    "rmse": 8.87,
+    "r2": 0.913,
+    "mape": 22.45,
+    "q10_residual": -11.43,
+    "q90_residual": 11.22
+  },
+  "training_samples": 9156,
+  "test_samples": 1963,
+  "split_method": "Strict Chronological Out-of-Time Split (No Shuffling)",
+  "is_demo_synthetic": true
+}

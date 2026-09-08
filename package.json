@@ -1,0 +1,23 @@
+{
+  "name": "air-quality-platform",
+  "version": "1.0.0",
+  "description": "Production-grade Air Quality Insight Platform for India combining CPCB AQI, Open-Meteo, MOSDAC/ISRO satellite data, ML forecasting, and Leaflet mapping.",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "npm run build:backend && npm run build:frontend",
+    "build:backend": "cd backend && npm run build",
+    "build:frontend": "cd frontend && npm run build",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd backend && npm run test",
+    "test:frontend": "cd frontend && npm run test",
+    "ml:train": "python ml/training/train.py",
+    "ml:server": "uvicorn ml.app.main:app --host 0.0.0.0 --port 8000 --reload",
+    "ingest:mosdac": "python scripts/ingest_mosdac.py"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
