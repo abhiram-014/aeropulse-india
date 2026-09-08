@@ -15,7 +15,10 @@ import {
   YearlyObservation
 } from '../types/index.js';
 
-const API_BASE = '/api';
+// In production (Render Static Site), set VITE_API_BASE_URL to your backend URL e.g.
+// https://aeropulse-backend.onrender.com/api
+// Locally this is unset and Vite's dev proxy forwards /api → localhost:5000
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 
 export const api = {
   // District-First Architecture API
