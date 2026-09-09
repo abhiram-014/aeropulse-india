@@ -51,10 +51,24 @@ export interface LocationInfo {
   city: string;
   state: string;
   country: string;
+  district?: string | null;
   latitude: number;
   longitude: number;
   elevation?: number;
   stationType?: string;
+}
+
+export interface OpenAqStationMetadata {
+  country: string;
+  state: string | null;
+  district: string | null;
+  city: string | null;
+  name: string;
+  openAqLocationId: number;
+  id: number | string;
+  latitude: number | null;
+  longitude: number | null;
+  source: 'OpenAQ';
 }
 
 export interface WeatherObservation {

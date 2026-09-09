@@ -11,12 +11,45 @@ export class ObservationController {
     this.weatherService = weatherService;
   }
 
-  getLocations = async (_req: Request, res: Response): Promise<void> => {
+  getLocations = async (req: Request, res: Response): Promise<void> => {
     try {
+      const source = (req.query.source || req.query.provider) as string | undefined;
+      if (source && source.toLowerCase() === 'openaq') {
+        const state = req.query.state as string | undefined;
+        const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+        const stations = await this.airQualityService.getOpenAqStations({ state, limit });
+        res.json(stations);
+        return;
+      }
       const locations = await this.airQualityService.getStations();
       res.json(locations);
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to retrieve monitoring locations' });
+    }
+  };
+
+  getOpenAqLocations = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const state = req.query.state as string | undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+      const stations = await this.airQualityService.getOpenAqStations({ state, limit });
+      res.json(stations);
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to retrieve OpenAQ station hierarchy' });
+    }
+  };
+
+  getLiveAqi = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const locationId = (req.query.locationId as string) || '235';
+      const result = await this.airQualityService.getLiveRealAqi(locationId);
+      if (!result) {
+        res.status(404).json({ error: `Real telemetry for location '${locationId}' not found or unavailable` });
+        return;
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: 'Failed to compute live OpenAQ CPCB AQI' });
     }
   };
 
@@ -44,6 +77,17 @@ export class ObservationController {
       res.status(500).json({ error: 'Failed to retrieve station map observations' });
     }
   };
+
+    getHistoricalAqi = async (req: Request, res: Response): Promise<void> => {
+      try {
+        const locationId = (req.query.locationId as string) || 'delhi-anand-vihar';
+        const date = (req.query.date as string) || new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+        const aqiData = await this.airQualityService.getHistoricalAqi(locationId, date);
+        res.json(aqiData);
+      } catch (error: any) {
+        res.status(500).json({ error: 'Failed to retrieve historical AQI' });
+      }
+    };
 
   getHistoricalTrend = async (req: Request, res: Response): Promise<void> => {
     try {

@@ -1,7 +1,7 @@
 import axios from 'axios';
-import { LocationInfo, PollutantValues } from '../types/index.js';
+import { LocationInfo, OpenAqStationMetadata, PollutantValues } from '../types/index.js';
 import { AirQualityProvider, ObservationRecord } from './baseProvider.js';
-import { INDIAN_MONITORING_STATIONS } from '../data/indiaAdminData.js';
+import { INDIA_STATES, INDIAN_MONITORING_STATIONS, MonitoringStationInfo } from '../data/indiaAdminData.js';
 
 export class OpenAqAdapter implements AirQualityProvider {
   name = 'OPENAQ_v3_API';
@@ -122,36 +122,70 @@ export class OpenAqAdapter implements AirQualityProvider {
 
         switch (paramName) {
           case 'pm25':
-            pollutants.pm25 = Number(val.toFixed(2));
+            // CPCB standard is µg/m³. Incompatible units (e.g. ppm, count) are ignored.
+            if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3' || paramUnit === 'µg/m3' || paramUnit === '') {
+              pollutants.pm25 = Number(val.toFixed(2));
+            }
             break;
           case 'pm10':
-            pollutants.pm10 = Number(val.toFixed(2));
+            // CPCB standard is µg/m³. Incompatible units are ignored.
+            if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3' || paramUnit === 'µg/m3' || paramUnit === '') {
+              pollutants.pm10 = Number(val.toFixed(2));
+            }
             break;
           case 'no2':
-            pollutants.no2 = Number(val.toFixed(2));
+            // CPCB standard is µg/m³. Prefer mass concentration; convert ppb/ppm only if not already set.
+            if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3' || paramUnit === 'µg/m3') {
+              pollutants.no2 = Number(val.toFixed(2));
+            } else if (paramUnit === 'ppb' && pollutants.no2 === undefined) {
+              pollutants.no2 = Number((val * 1.88).toFixed(2)); // 1 ppb NO2 ≈ 1.88 µg/m³ at NTP
+            } else if (paramUnit === 'ppm' && pollutants.no2 === undefined) {
+              pollutants.no2 = Number((val * 1880).toFixed(2));
+            }
             break;
           case 'so2':
-            pollutants.so2 = Number(val.toFixed(2));
+            // CPCB standard is µg/m³. Prefer mass concentration.
+            if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3' || paramUnit === 'µg/m3') {
+              pollutants.so2 = Number(val.toFixed(2));
+            } else if (paramUnit === 'ppb' && pollutants.so2 === undefined) {
+              pollutants.so2 = Number((val * 2.62).toFixed(2)); // 1 ppb SO2 ≈ 2.62 µg/m³ at NTP
+            } else if (paramUnit === 'ppm' && pollutants.so2 === undefined) {
+              pollutants.so2 = Number((val * 2620).toFixed(2));
+            }
             break;
           case 'co':
-            // Indian standard for CO in CPCB is mg/m³
-            if (paramUnit === 'ppm') {
-              val = val * 1.145; // 1 ppm CO ≈ 1.145 mg/m³ at NTP
+            // CPCB standard is mg/m³
+            if (paramUnit === 'mg/m³' || paramUnit === 'mg/m3') {
+              pollutants.co = Number(val.toFixed(2));
+            } else if (paramUnit === 'ppm') {
+              pollutants.co = Number((val * 1.145).toFixed(2)); // 1 ppm CO ≈ 1.145 mg/m³ at NTP
             } else if (paramUnit === 'ppb') {
-              val = (val * 1.145) / 1000;
-            } else if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3') {
-              val = val / 1000;
+              pollutants.co = Number(((val * 1.145) / 1000).toFixed(2));
+            } else if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3' || paramUnit === 'µg/m3') {
+              pollutants.co = Number((val / 1000).toFixed(2));
             }
-            pollutants.co = Number(val.toFixed(2));
             break;
           case 'o3':
-            pollutants.o3 = Number(val.toFixed(2));
+            // CPCB standard is µg/m³. Prefer mass concentration.
+            if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3' || paramUnit === 'µg/m3') {
+              pollutants.o3 = Number(val.toFixed(2));
+            } else if (paramUnit === 'ppb' && pollutants.o3 === undefined) {
+              pollutants.o3 = Number((val * 1.96).toFixed(2)); // 1 ppb O3 ≈ 1.96 µg/m³ at NTP
+            } else if (paramUnit === 'ppm' && pollutants.o3 === undefined) {
+              pollutants.o3 = Number((val * 1960).toFixed(2));
+            }
             break;
           case 'nh3':
-            pollutants.nh3 = Number(val.toFixed(2));
+            // CPCB standard is µg/m³
+            if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3' || paramUnit === 'µg/m3') {
+              pollutants.nh3 = Number(val.toFixed(2));
+            }
             break;
           case 'pb':
-            pollutants.pb = Number(val.toFixed(2));
+            // CPCB standard is µg/m³
+            if (paramUnit === 'µg/m³' || paramUnit === 'ug/m3' || paramUnit === 'µg/m3') {
+              pollutants.pb = Number(val.toFixed(2));
+            }
             break;
           default:
             // Other non-criteria parameters (relativehumidity, temperature, etc.) ignored
@@ -167,14 +201,19 @@ export class OpenAqAdapter implements AirQualityProvider {
         return null;
       }
 
-      const locationRecord: LocationInfo = station || {
+      const lat = targetLocation.coordinates?.latitude ?? station?.latitude ?? 0;
+      const lon = targetLocation.coordinates?.longitude ?? station?.longitude ?? 0;
+      const matchingVerified = station || this.findMatchingVerifiedStation(lat, lon, targetLocation.name);
+
+      const locationRecord: LocationInfo = {
         id: String(openAqLocationId),
-        name: targetLocation.name || `OpenAQ Station ${openAqLocationId}`,
-        city: targetLocation.locality || 'India',
-        state: 'India',
-        country: targetLocation.country?.code || 'IN',
-        latitude: targetLocation.coordinates?.latitude || 0,
-        longitude: targetLocation.coordinates?.longitude || 0
+        name: targetLocation.name || matchingVerified?.name || `OpenAQ Station ${openAqLocationId}`,
+        city: targetLocation.locality || matchingVerified?.city || this.resolveCity(targetLocation.locality, targetLocation.name) || 'India',
+        state: matchingVerified?.state || this.resolveState(targetLocation.name, targetLocation.owner?.name, targetLocation.locality) || 'India',
+        district: matchingVerified?.district || null,
+        country: targetLocation.country?.name || 'India',
+        latitude: lat,
+        longitude: lon
       };
 
       return {
@@ -191,11 +230,277 @@ export class OpenAqAdapter implements AirQualityProvider {
     }
   }
 
-  async getHistoricalObservations(locationId: string, _hours: number = 24): Promise<ObservationRecord[]> {
+  // Retrieve historical measurements for a location and specific date (YYYY-MM-DD)
+  // Retrieve historical measurements for a location and specific date (YYYY-MM-DD)
+  // Implements real OpenAQ v3 sensor measurements endpoint. Aggregates measurements across all sensors belonging to the location.
+  async getHistoricalMeasurements(locationId: string, date: string): Promise<PollutantValues | null> {
+    const apiKey = this.apiKey || process.env.OPENAQ_API_KEY;
+    if (!apiKey) return null;
+    try {
+      // Resolve the OpenAQ location (and its sensors) similarly to getCurrentObservation
+      let targetLocation: any = null;
+      let openAqLocationId: number | string | null = null;
+
+      // If locationId is numeric OpenAQ location id, fetch directly
+      if (/^\d+$/.test(locationId)) {
+        openAqLocationId = locationId;
+        const locResponse = await axios.get(`${this.baseUrl}/locations/${openAqLocationId}`, {
+          headers: { 'X-API-Key': apiKey },
+          timeout: 5000
+        });
+        targetLocation = locResponse.data?.results?.[0];
+      } else {
+        // Find nearest OpenAQ location based on our known station coordinates
+        const station = INDIAN_MONITORING_STATIONS.find(s => s.id === locationId);
+        if (!station) return null;
+        const locResponse = await axios.get(`${this.baseUrl}/locations`, {
+          params: {
+            coordinates: `${station.latitude},${station.longitude}`,
+            radius: 10000,
+            limit: 5
+          },
+          headers: { 'X-API-Key': apiKey },
+          timeout: 5000
+        });
+        const locations = locResponse.data?.results;
+        if (!locations || !Array.isArray(locations) || locations.length === 0) return null;
+        const sorted = [...locations].sort(
+          (a, b) => (typeof a.distance === 'number' ? a.distance : 999999) - (typeof b.distance === 'number' ? b.distance : 999999)
+        );
+        targetLocation = sorted[0];
+        openAqLocationId = targetLocation.id;
+      }
+
+      if (!targetLocation || !openAqLocationId) return null;
+
+      // Build sensor ID list from location metadata
+      const sensorIds: (number | string)[] = [];
+      if (Array.isArray(targetLocation.sensors)) {
+        for (const s of targetLocation.sensors) {
+          if (s && s.id != null) sensorIds.push(s.id);
+        }
+      }
+      if (sensorIds.length === 0) return null; // No sensors => no data
+
+      // Prepare date range for the whole UTC day
+      const from = `${date}T00:00:00Z`;
+      const to = `${date}T23:59:59Z`;
+
+      const pollutants: PollutantValues = {};
+
+      // Query each sensor's measurements and aggregate the most recent value per pollutant
+      for (const sensorId of sensorIds) {
+        const resp = await axios.get(`${this.baseUrl}/sensors/${sensorId}/measurements`, {
+          params: {
+            date_from: from,
+            date_to: to,
+            limit: 1000,
+            sort: 'desc'
+          },
+          headers: { 'X-API-Key': apiKey },
+          timeout: 8000
+        });
+        const results = resp.data?.results;
+        if (!results || !Array.isArray(results) || results.length === 0) continue;
+        for (const item of results) {
+          if (!item || typeof item.value !== 'number' || isNaN(item.value)) continue;
+          const paramName = (item.parameter?.name || '').toLowerCase().trim();
+          const paramUnit = (item.parameter?.units || '').toLowerCase().trim();
+          const val = item.value;
+          switch (paramName) {
+            case 'pm25':
+              if (['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) pollutants.pm25 = Number(val.toFixed(2));
+              break;
+            case 'pm10':
+              if (['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) pollutants.pm10 = Number(val.toFixed(2));
+              break;
+            case 'no2':
+              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.no2 = Number(val.toFixed(2));
+              else if (paramUnit === 'ppb') pollutants.no2 = Number((val * 1.88).toFixed(2));
+              else if (paramUnit === 'ppm') pollutants.no2 = Number((val * 1880).toFixed(2));
+              break;
+            case 'so2':
+              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.so2 = Number(val.toFixed(2));
+              else if (paramUnit === 'ppb') pollutants.so2 = Number((val * 2.62).toFixed(2));
+              else if (paramUnit === 'ppm') pollutants.so2 = Number((val * 2620).toFixed(2));
+              break;
+            case 'co':
+              if (['mg/m³', 'mg/m3'].includes(paramUnit)) pollutants.co = Number(val.toFixed(2));
+              else if (paramUnit === 'ppm') pollutants.co = Number((val * 1.145).toFixed(2));
+              else if (paramUnit === 'ppb') pollutants.co = Number(((val * 1.145) / 1000).toFixed(2));
+              else if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.co = Number((val / 1000).toFixed(2));
+              break;
+            case 'o3':
+              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.o3 = Number(val.toFixed(2));
+              else if (paramUnit === 'ppb') pollutants.o3 = Number((val * 1.96).toFixed(2));
+              else if (paramUnit === 'ppm') pollutants.o3 = Number((val * 1960).toFixed(2));
+              break;
+            case 'nh3':
+              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.nh3 = Number(val.toFixed(2));
+              break;
+            case 'pb':
+              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.pb = Number(val.toFixed(2));
+              break;
+            default:
+              break;
+          }
+        }
+      }
+
+      return Object.keys(pollutants).length > 0 ? pollutants : null;
+    } catch (e) {
+      // Any failure results in null, never fabricate data
+      return null;
+    }
+  }
+
+  async getHistoricalObservations(locationId: string, hours: number): Promise<ObservationRecord[]> {
+    // Historical observation retrieval is not needed for current features.
+    // Return empty array to satisfy interface.
     return [];
   }
 
   async getAllStations(): Promise<ObservationRecord[]> {
+    // For now, no station list retrieval via OpenAQ; return empty array.
     return [];
+  }
+
+  /**
+   * Retrieves verified OpenAQ station-to-location hierarchy:
+   * INDIA -> STATE -> DISTRICT -> CITY/TOWN -> MONITORING STATION
+   *
+   * Integrity constraints:
+   * - Uses actual OpenAQ location metadata.
+   * - Does NOT fabricate district names or guess city == district.
+   * - If district cannot be reliably determined, returns district as null (unavailable).
+   * - Preserves actual OpenAQ station name and location ID.
+   */
+  async getStationHierarchy(options?: { state?: string; limit?: number }): Promise<OpenAqStationMetadata[]> {
+    const apiKey = this.apiKey || process.env.OPENAQ_API_KEY;
+    if (!apiKey) {
+      return [];
+    }
+
+    try {
+      const response = await axios.get(`${this.baseUrl}/locations`, {
+        params: {
+          countries_id: 9, // India country ID in OpenAQ v3
+          limit: options?.limit || 50
+        },
+        headers: {
+          'X-API-Key': apiKey
+        },
+        timeout: 10000
+      });
+
+      const locations = response.data?.results;
+      if (!locations || !Array.isArray(locations)) {
+        return [];
+      }
+
+      const stations: OpenAqStationMetadata[] = [];
+
+      for (const loc of locations) {
+        if (!loc || !loc.id) continue;
+
+        const lat = loc.coordinates?.latitude ?? null;
+        const lon = loc.coordinates?.longitude ?? null;
+        const matchingVerified = (lat != null && lon != null)
+          ? this.findMatchingVerifiedStation(lat, lon, loc.name)
+          : undefined;
+
+        const country = loc.country?.name || 'India';
+        const state = matchingVerified?.state || this.resolveState(loc.name, loc.owner?.name, loc.locality);
+        const city = loc.locality || matchingVerified?.city || this.resolveCity(loc.locality, loc.name);
+        
+        // District: only assign if station matches a verified station registry with verified boundaries.
+        // Never infer from coordinates without verified boundaries, never guess city == district, never fabricate.
+        const district = matchingVerified?.district || null;
+
+        const stationMeta: OpenAqStationMetadata = {
+          country,
+          state,
+          district,
+          city,
+          name: loc.name || `OpenAQ Station ${loc.id}`,
+          openAqLocationId: loc.id,
+          id: loc.id,
+          latitude: lat,
+          longitude: lon,
+          source: 'OpenAQ'
+        };
+
+        if (options?.state) {
+          const target = options.state.toLowerCase().trim();
+          if (stationMeta.state && stationMeta.state.toLowerCase().trim() === target) {
+            stations.push(stationMeta);
+          }
+        } else {
+          stations.push(stationMeta);
+        }
+      }
+
+      return stations;
+    } catch (error) {
+      return [];
+    }
+  }
+
+  private findMatchingVerifiedStation(lat: number, lon: number, name?: string): MonitoringStationInfo | undefined {
+    const lowerName = (name || '').toLowerCase();
+    for (const s of INDIAN_MONITORING_STATIONS) {
+      const dLat = Math.abs(s.latitude - lat);
+      const dLon = Math.abs(s.longitude - lon);
+      // Coordinate proximity (~3 km) or exact name similarity
+      if (dLat < 0.03 && dLon < 0.03) {
+        return s;
+      }
+      if (lowerName.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(lowerName)) {
+        return s;
+      }
+    }
+    return undefined;
+  }
+
+  private resolveState(name?: string, owner?: string, locality?: string): string | null {
+    const text = `${name || ''} ${owner || ''} ${locality || ''}`.toLowerCase();
+
+    if (text.includes('delhi') || text.includes('dpcc')) return 'Delhi';
+    if (text.includes('bihar') || text.includes('bspcb')) return 'Bihar';
+    if (text.includes('telangana') || text.includes('tspcb')) return 'Telangana';
+    if (text.includes('maharashtra') || text.includes('mpcb')) return 'Maharashtra';
+    if (text.includes('karnataka') || text.includes('kspcb')) return 'Karnataka';
+    if (text.includes('tamil nadu') || text.includes('tnpcb')) return 'Tamil Nadu';
+    if (text.includes('uttar pradesh') || text.includes('uppcb')) return 'Uttar Pradesh';
+    if (text.includes('west bengal') || text.includes('wbpcb')) return 'West Bengal';
+    if (text.includes('rajasthan') || text.includes('rpcb')) return 'Rajasthan';
+    if (text.includes('gujarat') || text.includes('gpcb')) return 'Gujarat';
+    if (text.includes('chandigarh')) return 'Chandigarh';
+    if (text.includes('madhya pradesh') || text.includes('mppcb')) return 'Madhya Pradesh';
+
+    for (const st of INDIA_STATES) {
+      if (text.includes(st.toLowerCase())) {
+        return st;
+      }
+    }
+    return null;
+  }
+
+  private resolveCity(locality?: string | null, name?: string): string | null {
+    if (locality && locality.trim() !== '' && locality.trim().toLowerCase() !== 'null') {
+      return locality.trim();
+    }
+    if (!name) return null;
+    const commonCities = [
+      'New Delhi', 'Delhi', 'Gaya', 'Kanpur', 'Mumbai', 'Kolkata', 'Bengaluru', 'Bangalore',
+      'Hyderabad', 'Chennai', 'Pune', 'Ahmedabad', 'Patna', 'Lucknow', 'Jaipur', 'Chandigarh',
+      'Bhopal', 'Nagpur', 'Faridabad', 'Gurugram', 'Noida', 'Ghaziabad'
+    ];
+    for (const city of commonCities) {
+      if (new RegExp(`\\b${city}\\b`, 'i').test(name)) {
+        return city === 'New Delhi' ? 'Delhi' : city;
+      }
+    }
+    return null;
   }
 }

@@ -6,6 +6,8 @@ import {
   AirQualityStationSummary, 
   AqiCalculationResult, 
   LocationInfo, 
+  OpenAqStationMetadata,
+  PollutantType,
   PollutantValues 
 } from '../types/index.js';
 import { MosdacService } from './mosdacService.js';
@@ -14,13 +16,15 @@ import { WeatherService } from './weatherService.js';
 export class AirQualityService {
   private primaryProvider: AirQualityProvider;
   private demoProvider: DemoDataProvider;
+  private openAqAdapter: OpenAqAdapter;
   private weatherService: WeatherService;
   private mosdacService: MosdacService;
 
   constructor(weatherService: WeatherService) {
     this.demoProvider = new DemoDataProvider();
+    this.openAqAdapter = new OpenAqAdapter();
     const dataMode = process.env.DATA_MODE || 'demo';
-    this.primaryProvider = dataMode === 'live' ? new OpenAqAdapter() : this.demoProvider;
+    this.primaryProvider = dataMode === 'live' ? this.openAqAdapter : this.demoProvider;
     this.weatherService = weatherService;
     this.mosdacService = new MosdacService();
   }
@@ -29,12 +33,106 @@ export class AirQualityService {
     return INDIAN_MONITORING_STATIONS;
   }
 
+  async getOpenAqStations(options?: { state?: string; limit?: number }): Promise<OpenAqStationMetadata[]> {
+    return this.openAqAdapter.getStationHierarchy(options);
+  }
+
+  /**
+   * Pipeline: REAL OPENAQ MEASUREMENTS -> pollutant normalization -> existing CPCB AQI engine -> AQI + category + dominant pollutant
+   *
+   * Constraints:
+   * 1. Uses ONLY real OpenAQ measurements.
+   * 2. Preserves CPCB validity rules (minimum 3 pollutants + at least 1 particulate PM2.5 or PM10).
+   * 3. If validity requirements are not satisfied, returns AQI as unavailable / insufficient data.
+   * 4. Missing pollutants remain null/undefined; never replaced with 0 or synthetic values.
+   */
+  async getLiveRealAqi(locationId: string): Promise<{
+    aqi: number | null;
+    category: string;
+    dominantPollutant: PollutantType | null;
+    isValid: boolean;
+    validationMessage?: string;
+    pollutantValues: PollutantValues;
+    timestamp: string;
+    station: string;
+    state: string;
+    district: string | null;
+    city: string;
+    source: string;
+    isDemo: false;
+  } | null> {
+    const obs = await this.openAqAdapter.getCurrentObservation(locationId);
+    if (!obs) return null;
+
+    const aqiResult = calculateIndianAQI(obs.pollutants);
+
+    return {
+      aqi: aqiResult.isValid ? aqiResult.aqi : null,
+      category: aqiResult.isValid ? aqiResult.category : 'Insufficient Data',
+      dominantPollutant: aqiResult.isValid ? aqiResult.dominantPollutant : null,
+      isValid: aqiResult.isValid,
+      validationMessage: aqiResult.validationMessage,
+      pollutantValues: obs.pollutants,
+      timestamp: obs.timestamp,
+      station: obs.location.name,
+      state: obs.location.state,
+      district: obs.location.district || null,
+      city: obs.location.city,
+      source: 'OpenAQ v3 Live Telemetry',
+      isDemo: false
+    };
+  }
+
+  // Historical AQI retrieval for a specific date
+  async getHistoricalAqi(locationId: string, date: string): Promise<{
+    aqi: number | null;
+    category: string;
+    dominantPollutant: PollutantType | null;
+    isValid: boolean;
+    validationMessage?: string;
+    pollutantValues: PollutantValues;
+    timestamp: string;
+    station: string;
+    state: string;
+    district: string | null;
+    city: string;
+    source: string;
+    isDemo: false;
+  } | null> {
+    // Use OpenAQ Adapter to fetch historical measurements for the given date
+    const measurements = await this.openAqAdapter.getHistoricalMeasurements(locationId, date);
+    if (!measurements) return null;
+
+    const aqiResult = calculateIndianAQI(measurements);
+    // Retrieve location metadata similar to current observation (reuse getCurrentObservation for location info)
+    const obs = await this.openAqAdapter.getCurrentObservation(locationId);
+    const location = obs ? obs.location : { name: '', city: '', state: '', district: null, country: 'India', latitude: 0, longitude: 0, id: locationId };
+
+    return {
+      aqi: aqiResult.isValid ? aqiResult.aqi : null,
+      category: aqiResult.isValid ? aqiResult.category : 'Insufficient Data',
+      dominantPollutant: aqiResult.isValid ? aqiResult.dominantPollutant : null,
+      isValid: aqiResult.isValid,
+      validationMessage: aqiResult.validationMessage,
+      pollutantValues: measurements,
+      timestamp: new Date().toISOString(),
+      station: location.name,
+      state: location.state,
+      district: location.district || null,
+      city: location.city,
+      source: 'OpenAQ v3 Historical Measurements',
+      isDemo: false
+    };
+  }
+
   async getStationById(id: string): Promise<LocationInfo | undefined> {
     return INDIAN_MONITORING_STATIONS.find(s => s.id === id);
   }
 
   async getCurrentStationSummary(locationId: string): Promise<AirQualityStationSummary | null> {
-    const obs = await this.primaryProvider.getCurrentObservation(locationId);
+    const isNumeric = /^\d+$/.test(locationId);
+    const provider = (isNumeric || process.env.DATA_MODE === 'live') ? this.openAqAdapter : this.primaryProvider;
+    const obs = await provider.getCurrentObservation(locationId);
     if (!obs) return null;
 
     const aqiResult = calculateIndianAQI(obs.pollutants);

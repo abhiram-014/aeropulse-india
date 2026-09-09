@@ -17,29 +17,10 @@ import { useTheme } from '../context/ThemeContext.js';
 
 type HistoryFilter = '1Y' | '5Y' | '10Y' | '20Y' | '50Y';
 
-// Standard multi-year annual average dataset (2017 - 2026) for major Indian metros
-const HISTORICAL_CITY_ANNUAL_DATA = [
-  { year: '2017', Delhi: 215, Mumbai: 108, Bengaluru: 62, Hyderabad: 78, Kolkata: 142, Chennai: 68 },
-  { year: '2018', Delhi: 202, Mumbai: 98, Bengaluru: 58, Hyderabad: 72, Kolkata: 135, Chennai: 64 },
-  { year: '2019', Delhi: 195, Mumbai: 92, Bengaluru: 54, Hyderabad: 69, Kolkata: 128, Chennai: 60 },
-  { year: '2020', Delhi: 168, Mumbai: 79, Bengaluru: 46, Hyderabad: 58, Kolkata: 110, Chennai: 51 }, // Lockdown anomaly
-  { year: '2021', Delhi: 184, Mumbai: 88, Bengaluru: 52, Hyderabad: 64, Kolkata: 122, Chennai: 57 },
-  { year: '2022', Delhi: 178, Mumbai: 85, Bengaluru: 49, Hyderabad: 61, Kolkata: 118, Chennai: 54 },
-  { year: '2023', Delhi: 182, Mumbai: 86, Bengaluru: 51, Hyderabad: 63, Kolkata: 120, Chennai: 55 },
-  { year: '2024', Delhi: 175, Mumbai: 82, Bengaluru: 48, Hyderabad: 59, Kolkata: 115, Chennai: 52 },
-  { year: '2025', Delhi: 170, Mumbai: 80, Bengaluru: 45, Hyderabad: 56, Kolkata: 112, Chennai: 50 },
-  { year: '2026', Delhi: 165, Mumbai: 78, Bengaluru: 44, Hyderabad: 54, Kolkata: 108, Chennai: 48 },
-];
-
-// Multi-city 5-year average comparison
-const CITY_COMPARISON_DATA = [
-  { city: 'Delhi', aqi: 178, category: 'Moderate', color: '#F59E0B' },
-  { city: 'Kolkata', aqi: 121, category: 'Moderate', color: '#F59E0B' },
-  { city: 'Mumbai', aqi: 83, category: 'Satisfactory', color: '#84CC16' },
-  { city: 'Hyderabad', aqi: 62, category: 'Satisfactory', color: '#84CC16' },
-  { city: 'Chennai', aqi: 54, category: 'Satisfactory', color: '#84CC16' },
-  { city: 'Bengaluru', aqi: 48, category: 'Good', color: '#10B981' },
-];
+// Placeholder arrays; real data should be fetched from backend.
+// Currently no verified historical data source is available.
+const HISTORICAL_CITY_ANNUAL_DATA: any[] = [];
+const CITY_COMPARISON_DATA: any[] = [];
 
 export const HistoryPage: React.FC = () => {
   const { t } = useLanguage();
