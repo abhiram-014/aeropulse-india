@@ -223,8 +223,7 @@ export class DistrictAirQualityService {
 
     const districtInfo = getDistrictInfo(state, districtName);
     const stations = getStationsForDistrict(state, districtName);
-    const lat = stations.length > 0 ? stations[0].latitude : districtInfo?.centroid[0] || 20.0;
-    const lon = stations.length > 0 ? stations[0].longitude : districtInfo?.centroid[1] || 78.0;
+    const stationId = stations.length > 0 ? stations[0].id : null;
 
     const now = new Date();
     let daysBack = 30;
@@ -238,7 +237,9 @@ export class DistrictAirQualityService {
     const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
     const endDate = now.toISOString().substring(0, 10);
 
-    const records = await this.atmosphericProvider.getHistoricalDailyRange(lat, lon, startDate, endDate);
+    const records = stationId
+      ? (await this.openAqAdapter.getHistoricalTrendSeries(stationId, startDate, endDate)) ?? []
+      : [];
 
     return {
       available: records.length > 0,

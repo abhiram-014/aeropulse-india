@@ -1,7 +1,9 @@
 import axios from 'axios';
+import { calculateIndianAQI } from '../aqi/indianAQI.js';
 import { LocationInfo, OpenAqStationMetadata, PollutantValues } from '../types/index.js';
 import { AirQualityProvider, ObservationRecord } from './baseProvider.js';
 import { INDIA_STATES, INDIAN_MONITORING_STATIONS, MonitoringStationInfo } from '../data/indiaAdminData.js';
+import { DailyObservation } from './realAtmosphericProvider.js';
 
 export class OpenAqAdapter implements AirQualityProvider {
   name = 'OPENAQ_v3_API';
@@ -393,6 +395,52 @@ export class OpenAqAdapter implements AirQualityProvider {
     } catch (error) {
       return null;
     }
+  }
+
+  private buildDateRange(startDate: string, endDate: string): string[] {
+    const start = new Date(`${startDate}T00:00:00+05:30`);
+    const end = new Date(`${endDate}T00:00:00+05:30`);
+
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
+      return [];
+    }
+
+    const dates: string[] = [];
+    const cursor = new Date(start);
+    while (cursor <= end) {
+      dates.push(cursor.toISOString().substring(0, 10));
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return dates;
+  }
+
+  async getHistoricalTrendSeries(locationId: string, startDate: string, endDate: string): Promise<DailyObservation[] | null> {
+    const dates = this.buildDateRange(startDate, endDate);
+    if (dates.length === 0) {
+      return [];
+    }
+
+    const series: DailyObservation[] = [];
+
+    for (const date of dates) {
+      const pollutants = await this.getHistoricalMeasurements(locationId, date);
+      if (!pollutants) continue;
+
+      const aqiRes = calculateIndianAQI(pollutants);
+      if (!aqiRes.isValid) continue;
+
+      series.push({
+        date,
+        pollutants,
+        aqiResult: aqiRes,
+        isValidAqi: true,
+        dominantPollutant: aqiRes.dominantPollutant,
+        source: 'OpenAQ v3 Historical Measurements'
+      });
+    }
+
+    return series.length > 0 ? series : [];
   }
 
   async getHistoricalObservations(locationId: string, hours: number): Promise<ObservationRecord[]> {
