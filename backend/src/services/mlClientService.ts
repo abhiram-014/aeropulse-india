@@ -9,25 +9,44 @@ import {
 } from '../types/index.js';
 import { AirQualityService } from './airQualityService.js';
 import { WeatherService } from './weatherService.js';
+import { RealAtmosphericProvider } from '../providers/realAtmosphericProvider.js';
 
 export class MlClientService {
   private mlServiceUrl = process.env.ML_SERVICE_URL || 'http://localhost:8000';
   private airQualityService: AirQualityService;
   private weatherService: WeatherService;
+  private atmosphericProvider = new RealAtmosphericProvider();
 
   constructor(airQualityService: AirQualityService, weatherService: WeatherService) {
     this.airQualityService = airQualityService;
     this.weatherService = weatherService;
   }
 
-  async get24HourForecast(location: LocationInfo): Promise<ForecastResponse> {
+  async get24HourForecast(location: LocationInfo): Promise<ForecastResponse | null> {
     const now = new Date();
     
     // Retrieve historical 24h observations for lag & rolling features
     const history = await this.airQualityService.getHistoricalTrend(location.id, 24);
     const weatherForecast = await this.weatherService.getForecastWeather(location.latitude, location.longitude, 24);
     const currentSummary = await this.airQualityService.getCurrentStationSummary(location.id);
-    const currentPm25 = currentSummary?.pollutants.pm25 ?? 85;
+
+    let currentPm25: number | null = null;
+    if (currentSummary?.pollutants.pm25 != null && !isNaN(currentSummary.pollutants.pm25) && currentSummary.pollutants.pm25 > 0) {
+      currentPm25 = currentSummary.pollutants.pm25;
+    } else if (history.length > 0 && history[history.length - 1]?.pm25 > 0) {
+      currentPm25 = history[history.length - 1].pm25;
+    } else {
+      const todayStr = now.toISOString().substring(0, 10);
+      const dailyObs = await this.atmosphericProvider.getDailyMeasurements(location.latitude, location.longitude, todayStr);
+      if (dailyObs?.pollutants.pm25 != null && !isNaN(dailyObs.pollutants.pm25) && dailyObs.pollutants.pm25 > 0) {
+        currentPm25 = dailyObs.pollutants.pm25;
+      }
+    }
+
+    // STRICT NO-FABRICATION RULE: If no real PM2.5 observation is available, return null
+    if (currentPm25 === null || isNaN(currentPm25) || currentPm25 <= 0) {
+      return null;
+    }
 
     let forecastPoints: ForecastPoint[] = [];
     let isPythonServiceUsed = false;
@@ -74,7 +93,7 @@ export class MlClientService {
       modelType: isPythonServiceUsed ? 'FastAPI_XGBoost_MultiStep' : 'Embedded_Gradient_Boosted_Ensemble',
       trend,
       trendDescription,
-      isDemo: true,
+      isDemo: currentSummary ? Boolean(currentSummary.dataSource?.isDemo) : false,
       forecast: forecastPoints
     };
   }

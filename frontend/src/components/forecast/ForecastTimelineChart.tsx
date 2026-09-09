@@ -103,7 +103,10 @@ export const ForecastTimelineChart: React.FC<ForecastTimelineChartProps> = ({ fo
       <div className="rounded-3xl glass-panel-glow p-6 sm:p-8 border border-slate-200 dark:border-slate-800 space-y-4 shadow-lg">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-mono uppercase tracking-wider text-sky-700 dark:text-sky-300 bg-sky-500/15 px-2.5 py-1 rounded-md border border-sky-500/30 font-black">
+                {t.ticker.forecastData}
+              </span>
               <span className="text-xs font-mono uppercase tracking-widest text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-500/20 font-bold">
                 {tf.hourlyTrajectory}
               </span>
@@ -112,7 +115,7 @@ export const ForecastTimelineChart: React.FC<ForecastTimelineChartProps> = ({ fo
               </span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight mt-2">
-              {tf.projectedFor} {location.city}
+              {tf.projectedFor} {location.district ? `${location.district} (${location.city})` : location.city}
             </h2>
           </div>
 

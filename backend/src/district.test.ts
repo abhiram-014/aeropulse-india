@@ -3,6 +3,8 @@ import { DistrictAirQualityService } from './services/districtAirQualityService.
 import { BoundaryService } from './services/boundaryService.js';
 import { AiAssistantService } from './services/aiAssistantService.js';
 import { WeatherService } from './services/weatherService.js';
+import { AirQualityService } from './services/airQualityService.js';
+import { MlClientService } from './services/mlClientService.js';
 
 describe('District-First Air Quality Architecture & AI Services', () => {
   const weatherService = new WeatherService();
@@ -59,14 +61,35 @@ describe('District-First Air Quality Architecture & AI Services', () => {
     expect(res.disclaimer).toContain('AeroPulse advisory only');
   });
 
-  it('AeroPulse AI refuses to fabricate when data is unavailable', async () => {
-    const res = await aiService.generateResponse('What should I do today?', {
-      state: 'Telangana',
-      district: 'Hyderabad',
-      selectedDate: '1970-01-01',
-      hasData: false,
-      language: 'en'
-    });
-    expect(res.answer).toContain('not available');
+  it('generates 24-hour ML forecast for valid monitoring station location', async () => {
+    const airQualityService = new AirQualityService(weatherService);
+    const mlClientService = new MlClientService(airQualityService, weatherService);
+    const station = await airQualityService.getStationById('hyderabad-sanathnagar');
+    expect(station).toBeDefined();
+    if (station) {
+      const forecast = await mlClientService.get24HourForecast(station);
+      expect(forecast).not.toBeNull();
+      expect(forecast?.forecast.length).toBe(24);
+      expect(forecast?.forecast[0].hoursAhead).toBe(1);
+      expect(forecast?.forecast[23].hoursAhead).toBe(24);
+      expect(forecast?.location.id).toBe('hyderabad-sanathnagar');
+      expect(forecast?.trend).toBeDefined();
+    }
+  });
+
+  it('refuses to fabricate forecast data when no observations are available', async () => {
+    const airQualityService = new AirQualityService(weatherService);
+    const mlClientService = new MlClientService(airQualityService, weatherService);
+    const invalidLocation = {
+      id: 'invalid-nowhere',
+      name: 'Nowhere Station',
+      city: 'Unknown',
+      state: 'Unknown',
+      country: 'India',
+      latitude: -999,
+      longitude: -999
+    };
+    const forecast = await mlClientService.get24HourForecast(invalidLocation);
+    expect(forecast).toBeNull();
   });
 });

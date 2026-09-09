@@ -79,7 +79,7 @@ function AppInner() {
         const [summary, boundary, forecast, distComp, cityComp] = await Promise.all([
           api.getDistrictAirQuality(selectedState, selectedDistrict, selectedDate).catch(() => null),
           api.getDistrictBoundary(selectedState, selectedDistrict).catch(() => null),
-          api.getForecast('hyderabad-sanathnagar').catch(() => null),
+          api.getForecast({ state: selectedState, district: selectedDistrict }).catch(() => null),
           api.compareDistricts(selectedState, selectedDate).catch(() => null),
           api.compareMajorCities(selectedDate).catch(() => null)
         ]);
@@ -147,8 +147,12 @@ function AppInner() {
   const refreshDistrict = async () => {
     setLoading(true);
     try {
-      const summary = await api.getDistrictAirQuality(selectedState, selectedDistrict, selectedDate);
+      const [summary, forecast] = await Promise.all([
+        api.getDistrictAirQuality(selectedState, selectedDistrict, selectedDate),
+        api.getForecast({ state: selectedState, district: selectedDistrict }).catch(() => null)
+      ]);
       setDistrictSummary(summary);
+      setForecastData(forecast);
     } catch (err) {
       console.error('Error refreshing district:', err);
     } finally {
@@ -265,6 +269,8 @@ function AppInner() {
                       <ForecastPage
                         forecastData={forecastData}
                         loading={loading}
+                        selectedState={selectedState}
+                        selectedDistrict={selectedDistrict}
                       />
                     )}
 

@@ -153,8 +153,18 @@ export const api = {
     return res.data;
   },
 
-  getForecast: async (locationId: string): Promise<ForecastResponse> => {
-    const res = await axios.get(`${API_BASE}/forecast`, { params: { locationId } });
+  getForecast: async (
+    locationOrParams?: string | { state?: string; district?: string; locationId?: string }
+  ): Promise<ForecastResponse> => {
+    let params: Record<string, string> = {};
+    if (typeof locationOrParams === 'string') {
+      params = { locationId: locationOrParams };
+    } else if (locationOrParams) {
+      if (locationOrParams.state) params.state = locationOrParams.state;
+      if (locationOrParams.district) params.district = locationOrParams.district;
+      if (locationOrParams.locationId) params.locationId = locationOrParams.locationId;
+    }
+    const res = await axios.get(`${API_BASE}/forecast`, { params });
     return res.data;
   },
 

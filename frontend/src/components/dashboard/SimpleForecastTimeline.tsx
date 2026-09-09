@@ -151,6 +151,11 @@ export const SimpleForecastTimeline: React.FC<SimpleForecastTimelineProps> = ({
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="px-2 py-0.5 rounded font-mono font-black text-[10px] bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30 uppercase tracking-wider">
+              {t.ticker.forecastData}
+            </span>
+          </div>
           <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
             <Calendar className="w-5 h-5 text-blue-600 dark:text-blue-400" aria-hidden="true" />
             <span>{tf.title}</span>
