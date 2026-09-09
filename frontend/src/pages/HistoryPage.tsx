@@ -137,7 +137,32 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
     (async () => {
       try {
         const data = await api.getHistoricalDateAqi(locationId, pickerDate);
-        if (!cancelled) setResult(data);
+        if (cancelled) return;
+
+        // OpenAQ adapter or network may return null when no usable data is available.
+        // Convert null into an explicit unavailable result so the UI shows the "No measurements available" message.
+        if (data === null) {
+          // Find station metadata if possible
+          const stationMeta = INDIAN_MONITORING_STATIONS.find(s => s.id === locationId);
+          setResult({
+            aqi: null,
+            category: 'Insufficient Data',
+            dominantPollutant: null,
+            isValid: false,
+            validationMessage: t.history.noDataForDate,
+            pollutantValues: {},
+            timestamp: new Date().toISOString(),
+            station: stationMeta?.name || locationId,
+            state: stationMeta?.state || selectedState,
+            district: stationMeta?.district || selectedDistrict,
+            city: stationMeta?.city || '',
+            source: 'OpenAQ v3 Historical Measurements',
+            isDemo: false
+          });
+          return;
+        }
+
+        setResult(data);
       } catch {
         if (!cancelled) setResult('error');
       }

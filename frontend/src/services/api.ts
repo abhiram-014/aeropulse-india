@@ -147,10 +147,16 @@ export const api = {
     source: string;
     isDemo: false;
   } | null> => {
-    const res = await axios.get(`${API_BASE}/air-quality/historical-date`, {
-      params: { locationId, date }
-    });
-    return res.data;
+    try {
+      const res = await axios.get(`${API_BASE}/air-quality/historical-date`, {
+        params: { locationId, date },
+        timeout: 10000
+      });
+      return res.data;
+    } catch (err) {
+      // Network error or timeout — treat as unavailable
+      return null;
+    }
   },
 
   getForecast: async (

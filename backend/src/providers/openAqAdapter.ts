@@ -361,8 +361,27 @@ export class OpenAqAdapter implements AirQualityProvider {
   }
 
   async getAllStations(): Promise<ObservationRecord[]> {
-    // For now, no station list retrieval via OpenAQ; return empty array.
-    return [];
+    const apiKey = this.apiKey || process.env.OPENAQ_API_KEY;
+    if (!apiKey) return [];
+
+    try {
+      // Fetch OpenAQ station metadata (limit to a reasonable number)
+      const stations = await this.getStationHierarchy({ limit: 50 });
+      const observations: ObservationRecord[] = [];
+
+      for (const s of stations) {
+        try {
+          const obs = await this.getCurrentObservation(String(s.openAqLocationId));
+          if (obs) observations.push(obs);
+        } catch (e) {
+          // ignore individual station failures
+        }
+      }
+
+      return observations;
+    } catch (e) {
+      return [];
+    }
   }
 
   /**
