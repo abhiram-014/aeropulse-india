@@ -320,11 +320,6 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
                   {t.history.noDataForDate}
                 </p>
-                {hasResult && (result as HistoricalAqiResult).validationMessage && (
-                  <p className="text-[11px] text-slate-400 dark:text-slate-500 font-mono">
-                    {(result as HistoricalAqiResult).validationMessage}
-                  </p>
-                )}
               </div>
             </div>
           )}
