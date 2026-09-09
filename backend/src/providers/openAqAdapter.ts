@@ -237,11 +237,9 @@ export class OpenAqAdapter implements AirQualityProvider {
     const apiKey = this.apiKey || process.env.OPENAQ_API_KEY;
     if (!apiKey) return null;
     try {
-      // Resolve the OpenAQ location (and its sensors) similarly to getCurrentObservation
       let targetLocation: any = null;
       let openAqLocationId: number | string | null = null;
 
-      // If locationId is numeric OpenAQ location id, fetch directly
       if (/^\d+$/.test(locationId)) {
         openAqLocationId = locationId;
         const locResponse = await axios.get(`${this.baseUrl}/locations/${openAqLocationId}`, {
@@ -250,7 +248,6 @@ export class OpenAqAdapter implements AirQualityProvider {
         });
         targetLocation = locResponse.data?.results?.[0];
       } else {
-        // Find nearest OpenAQ location based on our known station coordinates
         const station = INDIAN_MONITORING_STATIONS.find(s => s.id === locationId);
         if (!station) return null;
         const locResponse = await axios.get(`${this.baseUrl}/locations`, {
@@ -273,83 +270,127 @@ export class OpenAqAdapter implements AirQualityProvider {
 
       if (!targetLocation || !openAqLocationId) return null;
 
-      // Build sensor ID list from location metadata
       const sensorIds: (number | string)[] = [];
       if (Array.isArray(targetLocation.sensors)) {
-        for (const s of targetLocation.sensors) {
-          if (s && s.id != null) sensorIds.push(s.id);
+        for (const sensor of targetLocation.sensors) {
+          if (sensor && sensor.id != null) sensorIds.push(sensor.id);
         }
       }
-      if (sensorIds.length === 0) return null; // No sensors => no data
+      if (sensorIds.length === 0) return null;
 
-      // Prepare date range for the whole UTC day
-      const from = `${date}T00:00:00Z`;
-      const to = `${date}T23:59:59Z`;
+      const from = new Date(`${date}T00:00:00+05:30`).toISOString();
+      const to = new Date(`${date}T23:59:59+05:30`).toISOString();
+      const pollutantsAgg: Record<string, { sum: number; count: number }> = {};
+
+      for (const sensorId of sensorIds) {
+        let page = 1;
+        while (true) {
+          const resp = await axios.get(`${this.baseUrl}/sensors/${sensorId}/measurements`, {
+            params: {
+              date_from: from,
+              date_to: to,
+              limit: 1000,
+              page,
+              sort: 'desc'
+            },
+            headers: { 'X-API-Key': apiKey },
+            timeout: 8000
+          });
+
+          const results = resp.data?.results;
+          if (!results || !Array.isArray(results) || results.length === 0) break;
+
+          for (const item of results) {
+            if (!item || typeof item.value !== 'number' || isNaN(item.value)) continue;
+            const rawName = (item.parameter?.name || item.parameter || '').toString().toLowerCase().trim();
+            const paramName = rawName.replace(/\./g, '').replace(/\s+/g, '');
+            const paramUnit = (item.parameter?.units || item.unit || '').toString().toLowerCase().trim();
+            let value = item.value;
+
+            switch (paramName) {
+              case 'pm25':
+                if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
+                break;
+              case 'pm10':
+                if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
+                break;
+              case 'no2':
+                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                } else if (paramUnit === 'ppb') {
+                  value = value * 1.88;
+                } else if (paramUnit === 'ppm') {
+                  value = value * 1880;
+                } else continue;
+                break;
+              case 'so2':
+                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                } else if (paramUnit === 'ppb') {
+                  value = value * 2.62;
+                } else if (paramUnit === 'ppm') {
+                  value = value * 2620;
+                } else continue;
+                break;
+              case 'co':
+                if (['mg/m³', 'mg/m3'].includes(paramUnit)) {
+                } else if (paramUnit === 'ppm') {
+                  value = value * 1.145;
+                } else if (paramUnit === 'ppb') {
+                  value = (value * 1.145) / 1000;
+                } else if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                  value = value / 1000;
+                } else continue;
+                break;
+              case 'o3':
+                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                } else if (paramUnit === 'ppb') {
+                  value = value * 1.96;
+                } else if (paramUnit === 'ppm') {
+                  value = value * 1960;
+                } else continue;
+                break;
+              case 'nh3':
+              case 'pb':
+                if (!['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) continue;
+                break;
+              default:
+                continue;
+            }
+
+            if (!pollutantsAgg[paramName]) pollutantsAgg[paramName] = { sum: 0, count: 0 };
+            pollutantsAgg[paramName].sum += Number(value);
+            pollutantsAgg[paramName].count += 1;
+          }
+
+          const meta = resp.data?.meta;
+          if (!meta || !meta.found || results.length < 1000) break;
+          const totalFound = meta.found || 0;
+          const fetchedSoFar = page * 1000;
+          if (fetchedSoFar >= totalFound) break;
+          page += 1;
+          if (page > 20) break;
+        }
+      }
 
       const pollutants: PollutantValues = {};
-
-      // Query each sensor's measurements and aggregate the most recent value per pollutant
-      for (const sensorId of sensorIds) {
-        const resp = await axios.get(`${this.baseUrl}/sensors/${sensorId}/measurements`, {
-          params: {
-            date_from: from,
-            date_to: to,
-            limit: 1000,
-            sort: 'desc'
-          },
-          headers: { 'X-API-Key': apiKey },
-          timeout: 8000
-        });
-        const results = resp.data?.results;
-        if (!results || !Array.isArray(results) || results.length === 0) continue;
-        for (const item of results) {
-          if (!item || typeof item.value !== 'number' || isNaN(item.value)) continue;
-          const paramName = (item.parameter?.name || '').toLowerCase().trim();
-          const paramUnit = (item.parameter?.units || '').toLowerCase().trim();
-          const val = item.value;
+      for (const [paramName, v] of Object.entries(pollutantsAgg)) {
+        if (v.count > 0) {
+          const mean = v.sum / v.count;
           switch (paramName) {
-            case 'pm25':
-              if (['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) pollutants.pm25 = Number(val.toFixed(2));
-              break;
-            case 'pm10':
-              if (['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) pollutants.pm10 = Number(val.toFixed(2));
-              break;
-            case 'no2':
-              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.no2 = Number(val.toFixed(2));
-              else if (paramUnit === 'ppb') pollutants.no2 = Number((val * 1.88).toFixed(2));
-              else if (paramUnit === 'ppm') pollutants.no2 = Number((val * 1880).toFixed(2));
-              break;
-            case 'so2':
-              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.so2 = Number(val.toFixed(2));
-              else if (paramUnit === 'ppb') pollutants.so2 = Number((val * 2.62).toFixed(2));
-              else if (paramUnit === 'ppm') pollutants.so2 = Number((val * 2620).toFixed(2));
-              break;
-            case 'co':
-              if (['mg/m³', 'mg/m3'].includes(paramUnit)) pollutants.co = Number(val.toFixed(2));
-              else if (paramUnit === 'ppm') pollutants.co = Number((val * 1.145).toFixed(2));
-              else if (paramUnit === 'ppb') pollutants.co = Number(((val * 1.145) / 1000).toFixed(2));
-              else if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.co = Number((val / 1000).toFixed(2));
-              break;
-            case 'o3':
-              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.o3 = Number(val.toFixed(2));
-              else if (paramUnit === 'ppb') pollutants.o3 = Number((val * 1.96).toFixed(2));
-              else if (paramUnit === 'ppm') pollutants.o3 = Number((val * 1960).toFixed(2));
-              break;
-            case 'nh3':
-              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.nh3 = Number(val.toFixed(2));
-              break;
-            case 'pb':
-              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) pollutants.pb = Number(val.toFixed(2));
-              break;
-            default:
-              break;
+            case 'pm25': pollutants.pm25 = Number(mean.toFixed(2)); break;
+            case 'pm10': pollutants.pm10 = Number(mean.toFixed(2)); break;
+            case 'no2': pollutants.no2 = Number(mean.toFixed(2)); break;
+            case 'so2': pollutants.so2 = Number(mean.toFixed(2)); break;
+            case 'co': pollutants.co = Number(mean.toFixed(2)); break;
+            case 'o3': pollutants.o3 = Number(mean.toFixed(2)); break;
+            case 'nh3': pollutants.nh3 = Number(mean.toFixed(2)); break;
+            case 'pb': pollutants.pb = Number(mean.toFixed(2)); break;
+            default: break;
           }
         }
       }
 
       return Object.keys(pollutants).length > 0 ? pollutants : null;
-    } catch (e) {
-      // Any failure results in null, never fabricate data
+    } catch (error) {
       return null;
     }
   }
