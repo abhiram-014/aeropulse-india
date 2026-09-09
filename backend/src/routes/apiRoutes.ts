@@ -47,6 +47,7 @@ export function createApiRouter(): Router {
   router.get('/air-quality/current', observationController.getCurrentAirQuality);
   router.get('/air-quality/live-aqi', observationController.getLiveAqi);
   router.get('/air-quality/history', observationController.getHistoricalTrend);
+  router.get('/air-quality/historical-date', observationController.getHistoricalAqi);
   router.get('/map', observationController.getAllStationMapData);
   router.get('/weather/current', observationController.getCurrentWeather);
 

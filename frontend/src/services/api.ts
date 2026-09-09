@@ -130,6 +130,29 @@ export const api = {
     return res.data;
   },
 
+  // Real OpenAQ historical measurements for a specific date (YYYY-MM-DD) and station.
+  // Returns AQI + pollutants from real sensor data, or null if insufficient data.
+  getHistoricalDateAqi: async (locationId: string, date: string): Promise<{
+    aqi: number | null;
+    category: string;
+    dominantPollutant: string | null;
+    isValid: boolean;
+    validationMessage?: string;
+    pollutantValues: Record<string, number | undefined>;
+    timestamp: string;
+    station: string;
+    state: string;
+    district: string | null;
+    city: string;
+    source: string;
+    isDemo: false;
+  } | null> => {
+    const res = await axios.get(`${API_BASE}/air-quality/historical-date`, {
+      params: { locationId, date }
+    });
+    return res.data;
+  },
+
   getForecast: async (locationId: string): Promise<ForecastResponse> => {
     const res = await axios.get(`${API_BASE}/forecast`, { params: { locationId } });
     return res.data;

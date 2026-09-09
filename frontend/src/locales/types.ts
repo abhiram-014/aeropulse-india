@@ -206,6 +206,12 @@ export interface HistoryTranslations {
   worstPeriod: string;
   aqiTrendLabel: string;
   cityComparisonSubtitle: string;
+  /** New: shown while fetching historical data */
+  fetchingData: string;
+  /** New: shown when backend returns null / insufficient_data */
+  noDataForDate: string;
+  /** New: label prefix for the resolved station name */
+  stationLabel: string;
 }
 
 export interface YearlyTranslations {

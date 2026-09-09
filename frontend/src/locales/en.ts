@@ -271,6 +271,9 @@ export const en: Translations = {
     worstPeriod: 'Most Polluted Period',
     aqiTrendLabel: 'AQI Trend',
     cityComparisonSubtitle: 'Historical progression across major observation hubs',
+    fetchingData: 'Fetching historical measurements…',
+    noDataForDate: 'No measurements available for this station on the selected date. AeroPulse does not fabricate data.',
+    stationLabel: 'Station:',
   },
 
   yearly: {

@@ -297,7 +297,12 @@ function AppInner() {
                     )}
 
                     {activeTab === 'history' && (
-                      <HistoryPage />
+                      <HistoryPage
+                        selectedState={selectedState}
+                        selectedDistrict={selectedDistrict}
+                        selectedDate={selectedDate}
+                        onSelectDate={(d) => setSelectedDate(d)}
+                      />
                     )}
 
                     {activeTab === 'cities' && (

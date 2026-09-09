@@ -271,6 +271,9 @@ export const te: Translations = {
     worstPeriod: 'అత్యంత కలుషిత కాలం',
     aqiTrendLabel: 'AQI ధోరణి',
     cityComparisonSubtitle: 'ప్రధాన పర్యవేక్షణ కేంద్రాల చారిత్రక పురోగతి',
+    fetchingData: 'చారిత్రక కొలతలు తెచ్చుకోవడం జరుగుతోంది…',
+    noDataForDate: 'ఎంచుకున్న తేదీన ఈ కేంద్రంకు సంబంధించి కొలతలు అందుబాటులో లేవు. AeroPulse కృత్రిమ డేటాను చూపించదు.',
+    stationLabel: 'కేంద్రం:',
   },
 
   yearly: {

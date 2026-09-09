@@ -271,6 +271,9 @@ export const hi: Translations = {
     worstPeriod: 'सबसे प्रदूषित अवधि',
     aqiTrendLabel: 'AQI रुझान',
     cityComparisonSubtitle: 'प्रमुख निगरानी केंद्रों की ऐतिहासिक प्रगति',
+    fetchingData: 'ऐतिहासिक माप प्राप्त हो रहे हैं…',
+    noDataForDate: 'चुनी गई तारीख पर इस स्टेशन के लिए कोई माप उपलब्ध नहीं है। AeroPulse डेटा नहीं बनाता।',
+    stationLabel: 'स्टेशन:',
   },
 
   yearly: {
