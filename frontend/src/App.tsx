@@ -25,7 +25,7 @@ import { SettingsPage } from './pages/SettingsPage.js';
 import { ThemeProvider } from './context/ThemeContext.js';
 import { LanguageProvider } from './context/LanguageContext.js';
 import { ErrorBoundary } from './components/common/ErrorBoundary.js';
-import { INDIAN_MONITORING_STATIONS } from './data/indiaAdminData.js';
+import { INDIA_DISTRICTS_BY_STATE, INDIAN_MONITORING_STATIONS } from './data/indiaAdminData.js';
 
 import { useLanguage } from './context/LanguageContext.js';
 
@@ -55,6 +55,11 @@ function AppInner() {
 
   const [loading, setLoading] = useState<boolean>(true);
   const [apiError, setApiError] = useState<boolean>(false);
+
+  const handleStateChange = (state: string) => {
+    setSelectedState(state);
+    setSelectedDistrict(INDIA_DISTRICTS_BY_STATE[state]?.[0]?.name || '');
+  };
 
   // Initial Load: Fetch static model metadata & major comparisons
   useEffect(() => {
@@ -243,7 +248,7 @@ function AppInner() {
                         selectedState={selectedState}
                         selectedDistrict={selectedDistrict}
                         selectedDate={selectedDate}
-                        onSelectState={(st) => setSelectedState(st)}
+                        onSelectState={handleStateChange}
                         onSelectDistrict={(dist) => setSelectedDistrict(dist)}
                         onSelectDate={(d) => setSelectedDate(d)}
                         onPeriodChange={(p) => setSelectedPeriod(p)}

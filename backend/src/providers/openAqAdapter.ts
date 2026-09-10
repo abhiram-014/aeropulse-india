@@ -318,94 +318,101 @@ export class OpenAqAdapter implements AirQualityProvider {
       const to = new Date(`${date}T23:59:59+05:30`).toISOString();
       const pollutantsAgg: Record<string, { sum: number; count: number }> = {};
 
-      // Use the /measurements endpoint filtered by location_id to collect all sensor measurements
-      // for this location/date. This reduces the number of HTTP requests compared to per-sensor calls.
-      let page = 1;
-      while (true) {
-        const resp = await this.scheduledGet(`${this.baseUrl}/measurements`, {
-          params: {
-            location_id: openAqLocationId,
-            date_from: from,
-            date_to: to,
-            limit: 1000,
-            page,
-            sort: 'desc'
-          },
-          headers: { 'X-API-Key': apiKey },
-          timeout: 8000
-        });
+      const sensorIds: (number | string)[] = [];
+      if (Array.isArray(targetLocation.sensors)) {
+        for (const sensor of targetLocation.sensors) {
+          if (sensor && sensor.id != null) sensorIds.push(sensor.id);
+        }
+      }
+      if (sensorIds.length === 0) return null;
 
-        const results = resp.data?.results;
-        if (!results || !Array.isArray(results) || results.length === 0) break;
+      for (const sensorId of sensorIds) {
+        let page = 1;
+        while (true) {
+          const resp = await this.scheduledGet(`${this.baseUrl}/sensors/${sensorId}/measurements`, {
+            params: {
+              date_from: from,
+              date_to: to,
+              limit: 1000,
+              page,
+              sort: 'desc'
+            },
+            headers: { 'X-API-Key': apiKey },
+            timeout: 8000
+          });
 
-        for (const item of results) {
-          if (!item || typeof item.value !== 'number' || isNaN(item.value)) continue;
-          const rawName = (item.parameter?.name || item.parameter || '').toString().toLowerCase().trim();
-          const paramName = rawName.replace(/\./g, '').replace(/\s+/g, '');
-          const paramUnit = (item.parameter?.units || item.unit || '').toString().toLowerCase().trim();
-          let value = item.value;
+          const results = resp.data?.results;
+          if (!results || !Array.isArray(results) || results.length === 0) break;
 
-          switch (paramName) {
-            case 'pm25':
-              if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
-              break;
-            case 'pm10':
-              if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
-              break;
-            case 'no2':
-              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
-              } else if (paramUnit === 'ppb') {
-                value = value * 1.88;
-              } else if (paramUnit === 'ppm') {
-                value = value * 1880;
-              } else continue;
-              break;
-            case 'so2':
-              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
-              } else if (paramUnit === 'ppb') {
-                value = value * 2.62;
-              } else if (paramUnit === 'ppm') {
-                value = value * 2620;
-              } else continue;
-              break;
-            case 'co':
-              if (['mg/m³', 'mg/m3'].includes(paramUnit)) {
-              } else if (paramUnit === 'ppm') {
-                value = value * 1.145;
-              } else if (paramUnit === 'ppb') {
-                value = (value * 1.145) / 1000;
-              } else if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
-                value = value / 1000;
-              } else continue;
-              break;
-            case 'o3':
-              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
-              } else if (paramUnit === 'ppb') {
-                value = value * 1.96;
-              } else if (paramUnit === 'ppm') {
-                value = value * 1960;
-              } else continue;
-              break;
-            case 'nh3':
-            case 'pb':
-              if (!['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) continue;
-              break;
-            default:
-              continue;
+          for (const item of results) {
+            if (!item || typeof item.value !== 'number' || isNaN(item.value)) continue;
+            const rawName = (item.parameter?.name || item.parameter || '').toString().toLowerCase().trim();
+            const paramName = rawName.replace(/\./g, '').replace(/\s+/g, '');
+            const paramUnit = (item.parameter?.units || item.unit || '').toString().toLowerCase().trim();
+            let value = item.value;
+
+            switch (paramName) {
+              case 'pm25':
+                if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
+                break;
+              case 'pm10':
+                if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
+                break;
+              case 'no2':
+                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                } else if (paramUnit === 'ppb') {
+                  value = value * 1.88;
+                } else if (paramUnit === 'ppm') {
+                  value = value * 1880;
+                } else continue;
+                break;
+              case 'so2':
+                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                } else if (paramUnit === 'ppb') {
+                  value = value * 2.62;
+                } else if (paramUnit === 'ppm') {
+                  value = value * 2620;
+                } else continue;
+                break;
+              case 'co':
+                if (['mg/m³', 'mg/m3'].includes(paramUnit)) {
+                } else if (paramUnit === 'ppm') {
+                  value = value * 1.145;
+                } else if (paramUnit === 'ppb') {
+                  value = (value * 1.145) / 1000;
+                } else if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                  value = value / 1000;
+                } else continue;
+                break;
+              case 'o3':
+                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                } else if (paramUnit === 'ppb') {
+                  value = value * 1.96;
+                } else if (paramUnit === 'ppm') {
+                  value = value * 1960;
+                } else continue;
+                break;
+              case 'nh3':
+              case 'pb':
+                if (!['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) continue;
+                break;
+              default:
+                continue;
+            }
+
+            if (!pollutantsAgg[paramName]) pollutantsAgg[paramName] = { sum: 0, count: 0 };
+            pollutantsAgg[paramName].sum += Number(value);
+            pollutantsAgg[paramName].count += 1;
           }
 
-          if (!pollutantsAgg[paramName]) pollutantsAgg[paramName] = { sum: 0, count: 0 };
-          pollutantsAgg[paramName].sum += Number(value);
-          pollutantsAgg[paramName].count += 1;
+          const meta = resp.data?.meta;
+          if (!meta || !meta.found || results.length < 1000) break;
+          const totalFound = meta.found || 0;
+          const fetchedSoFar = page * 1000;
+          if (fetchedSoFar >= totalFound) break;
+          page += 1;
+          if (page > 50) break;
         }
-
-        const meta = resp.data?.meta;
-        if (!meta || !meta.found || results.length < 1000) break;
-        const totalFound = meta.found || 0;
-        const fetchedSoFar = page * 1000;
-        if (fetchedSoFar >= totalFound) break;
-        page += 1;
-        if (page > 50) break;
       }
 
       const pollutants: PollutantValues = {};
