@@ -9,6 +9,48 @@ export class OpenAqAdapter implements AirQualityProvider {
   name = 'OPENAQ_v3_API';
   private baseUrl = process.env.OPENAQ_BASE_URL || 'https://api.openaq.org/v3';
   private apiKey = process.env.OPENAQ_API_KEY;
+  // Concurrency + rate limiting controls for OpenAQ HTTP requests
+  private openAqConcurrency: number;
+  private openAqRateLimitPerMin: number;
+  private openAqMinIntervalMs: number;
+  private openAqTimestamps: number[];
+  private openAqInflight: number;
+
+  constructor() {
+    this.openAqConcurrency = parseInt(process.env.OPENAQ_CONCURRENCY || '4', 10);
+    this.openAqRateLimitPerMin = parseInt(process.env.OPENAQ_RATE_LIMIT_PER_MIN || '60', 10);
+    this.openAqMinIntervalMs = Math.floor(60000 / Math.max(1, this.openAqRateLimitPerMin));
+    this.openAqTimestamps = [];
+    this.openAqInflight = 0;
+  }
+
+  // Token-bucket style limiter: allow up to `openAqRateLimitPerMin` requests per sliding 60s window
+  // and up to `openAqConcurrency` concurrent requests. This permits short bursts while staying
+  // within OpenAQ's per-minute limit.
+  private async scheduledGet(url: string, config?: any) {
+    while (true) {
+      const now = Date.now();
+      // purge timestamps older than 60s
+      while (this.openAqTimestamps.length > 0 && now - this.openAqTimestamps[0] >= 60000) {
+        this.openAqTimestamps.shift();
+      }
+
+      if (this.openAqInflight < this.openAqConcurrency && this.openAqTimestamps.length < this.openAqRateLimitPerMin) {
+        // allowed to send request
+        this.openAqInflight += 1;
+        this.openAqTimestamps.push(now);
+        try {
+          return await axios.get(url, config);
+        } finally {
+          this.openAqInflight = Math.max(0, this.openAqInflight - 1);
+        }
+      }
+
+      // compute wait: if timestamps full, wait until oldest is outside 60s window; otherwise short backoff
+      const wait = this.openAqTimestamps.length === 0 ? 50 : Math.max(50, 60000 - (now - this.openAqTimestamps[0]));
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
 
   async getCurrentObservation(locationId: string): Promise<ObservationRecord | null> {
     const station = INDIAN_MONITORING_STATIONS.find(s => s.id === locationId);
@@ -28,7 +70,7 @@ export class OpenAqAdapter implements AirQualityProvider {
       // If locationId is directly a numeric OpenAQ location ID (or station.id is numeric)
       if (/^\d+$/.test(locationId)) {
         openAqLocationId = locationId;
-        const locResponse = await axios.get(`${this.baseUrl}/locations/${openAqLocationId}`, {
+        const locResponse = await this.scheduledGet(`${this.baseUrl}/locations/${openAqLocationId}`, {
           headers: { 'X-API-Key': apiKey },
           timeout: 5000
         });
@@ -36,7 +78,7 @@ export class OpenAqAdapter implements AirQualityProvider {
       } else {
         if (!station) return null;
         // 1. Find nearby locations in OpenAQ v3 sorted by proximity
-        const locResponse = await axios.get(`${this.baseUrl}/locations`, {
+        const locResponse = await this.scheduledGet(`${this.baseUrl}/locations`, {
           params: {
             coordinates: `${station.latitude},${station.longitude}`,
             radius: 10000, // 10 km radius
@@ -80,7 +122,7 @@ export class OpenAqAdapter implements AirQualityProvider {
       }
 
       // 2. Query latest sensor measurements for this location in OpenAQ v3: GET /v3/locations/{location_id}/latest
-      const latestResponse = await axios.get(`${this.baseUrl}/locations/${openAqLocationId}/latest`, {
+      const latestResponse = await this.scheduledGet(`${this.baseUrl}/locations/${openAqLocationId}/latest`, {
         headers: {
           'X-API-Key': apiKey
         },
@@ -244,7 +286,7 @@ export class OpenAqAdapter implements AirQualityProvider {
 
       if (/^\d+$/.test(locationId)) {
         openAqLocationId = locationId;
-        const locResponse = await axios.get(`${this.baseUrl}/locations/${openAqLocationId}`, {
+        const locResponse = await this.scheduledGet(`${this.baseUrl}/locations/${openAqLocationId}`, {
           headers: { 'X-API-Key': apiKey },
           timeout: 5000
         });
@@ -252,7 +294,7 @@ export class OpenAqAdapter implements AirQualityProvider {
       } else {
         const station = INDIAN_MONITORING_STATIONS.find(s => s.id === locationId);
         if (!station) return null;
-        const locResponse = await axios.get(`${this.baseUrl}/locations`, {
+        const locResponse = await this.scheduledGet(`${this.baseUrl}/locations`, {
           params: {
             coordinates: `${station.latitude},${station.longitude}`,
             radius: 10000,
@@ -272,105 +314,98 @@ export class OpenAqAdapter implements AirQualityProvider {
 
       if (!targetLocation || !openAqLocationId) return null;
 
-      const sensorIds: (number | string)[] = [];
-      if (Array.isArray(targetLocation.sensors)) {
-        for (const sensor of targetLocation.sensors) {
-          if (sensor && sensor.id != null) sensorIds.push(sensor.id);
-        }
-      }
-      if (sensorIds.length === 0) return null;
-
       const from = new Date(`${date}T00:00:00+05:30`).toISOString();
       const to = new Date(`${date}T23:59:59+05:30`).toISOString();
       const pollutantsAgg: Record<string, { sum: number; count: number }> = {};
 
-      for (const sensorId of sensorIds) {
-        let page = 1;
-        while (true) {
-          const resp = await axios.get(`${this.baseUrl}/sensors/${sensorId}/measurements`, {
-            params: {
-              date_from: from,
-              date_to: to,
-              limit: 1000,
-              page,
-              sort: 'desc'
-            },
-            headers: { 'X-API-Key': apiKey },
-            timeout: 8000
-          });
+      // Use the /measurements endpoint filtered by location_id to collect all sensor measurements
+      // for this location/date. This reduces the number of HTTP requests compared to per-sensor calls.
+      let page = 1;
+      while (true) {
+        const resp = await this.scheduledGet(`${this.baseUrl}/measurements`, {
+          params: {
+            location_id: openAqLocationId,
+            date_from: from,
+            date_to: to,
+            limit: 1000,
+            page,
+            sort: 'desc'
+          },
+          headers: { 'X-API-Key': apiKey },
+          timeout: 8000
+        });
 
-          const results = resp.data?.results;
-          if (!results || !Array.isArray(results) || results.length === 0) break;
+        const results = resp.data?.results;
+        if (!results || !Array.isArray(results) || results.length === 0) break;
 
-          for (const item of results) {
-            if (!item || typeof item.value !== 'number' || isNaN(item.value)) continue;
-            const rawName = (item.parameter?.name || item.parameter || '').toString().toLowerCase().trim();
-            const paramName = rawName.replace(/\./g, '').replace(/\s+/g, '');
-            const paramUnit = (item.parameter?.units || item.unit || '').toString().toLowerCase().trim();
-            let value = item.value;
+        for (const item of results) {
+          if (!item || typeof item.value !== 'number' || isNaN(item.value)) continue;
+          const rawName = (item.parameter?.name || item.parameter || '').toString().toLowerCase().trim();
+          const paramName = rawName.replace(/\./g, '').replace(/\s+/g, '');
+          const paramUnit = (item.parameter?.units || item.unit || '').toString().toLowerCase().trim();
+          let value = item.value;
 
-            switch (paramName) {
-              case 'pm25':
-                if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
-                break;
-              case 'pm10':
-                if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
-                break;
-              case 'no2':
-                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
-                } else if (paramUnit === 'ppb') {
-                  value = value * 1.88;
-                } else if (paramUnit === 'ppm') {
-                  value = value * 1880;
-                } else continue;
-                break;
-              case 'so2':
-                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
-                } else if (paramUnit === 'ppb') {
-                  value = value * 2.62;
-                } else if (paramUnit === 'ppm') {
-                  value = value * 2620;
-                } else continue;
-                break;
-              case 'co':
-                if (['mg/m³', 'mg/m3'].includes(paramUnit)) {
-                } else if (paramUnit === 'ppm') {
-                  value = value * 1.145;
-                } else if (paramUnit === 'ppb') {
-                  value = (value * 1.145) / 1000;
-                } else if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
-                  value = value / 1000;
-                } else continue;
-                break;
-              case 'o3':
-                if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
-                } else if (paramUnit === 'ppb') {
-                  value = value * 1.96;
-                } else if (paramUnit === 'ppm') {
-                  value = value * 1960;
-                } else continue;
-                break;
-              case 'nh3':
-              case 'pb':
-                if (!['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) continue;
-                break;
-              default:
-                continue;
-            }
-
-            if (!pollutantsAgg[paramName]) pollutantsAgg[paramName] = { sum: 0, count: 0 };
-            pollutantsAgg[paramName].sum += Number(value);
-            pollutantsAgg[paramName].count += 1;
+          switch (paramName) {
+            case 'pm25':
+              if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
+              break;
+            case 'pm10':
+              if (!['µg/m³', 'ug/m3', 'µg/m3', ''].includes(paramUnit)) continue;
+              break;
+            case 'no2':
+              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+              } else if (paramUnit === 'ppb') {
+                value = value * 1.88;
+              } else if (paramUnit === 'ppm') {
+                value = value * 1880;
+              } else continue;
+              break;
+            case 'so2':
+              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+              } else if (paramUnit === 'ppb') {
+                value = value * 2.62;
+              } else if (paramUnit === 'ppm') {
+                value = value * 2620;
+              } else continue;
+              break;
+            case 'co':
+              if (['mg/m³', 'mg/m3'].includes(paramUnit)) {
+              } else if (paramUnit === 'ppm') {
+                value = value * 1.145;
+              } else if (paramUnit === 'ppb') {
+                value = (value * 1.145) / 1000;
+              } else if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+                value = value / 1000;
+              } else continue;
+              break;
+            case 'o3':
+              if (['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) {
+              } else if (paramUnit === 'ppb') {
+                value = value * 1.96;
+              } else if (paramUnit === 'ppm') {
+                value = value * 1960;
+              } else continue;
+              break;
+            case 'nh3':
+            case 'pb':
+              if (!['µg/m³', 'ug/m3', 'µg/m3'].includes(paramUnit)) continue;
+              break;
+            default:
+              continue;
           }
 
-          const meta = resp.data?.meta;
-          if (!meta || !meta.found || results.length < 1000) break;
-          const totalFound = meta.found || 0;
-          const fetchedSoFar = page * 1000;
-          if (fetchedSoFar >= totalFound) break;
-          page += 1;
-          if (page > 20) break;
+          if (!pollutantsAgg[paramName]) pollutantsAgg[paramName] = { sum: 0, count: 0 };
+          pollutantsAgg[paramName].sum += Number(value);
+          pollutantsAgg[paramName].count += 1;
         }
+
+        const meta = resp.data?.meta;
+        if (!meta || !meta.found || results.length < 1000) break;
+        const totalFound = meta.found || 0;
+        const fetchedSoFar = page * 1000;
+        if (fetchedSoFar >= totalFound) break;
+        page += 1;
+        if (page > 50) break;
       }
 
       const pollutants: PollutantValues = {};
@@ -421,25 +456,39 @@ export class OpenAqAdapter implements AirQualityProvider {
       return [];
     }
 
-    const series: DailyObservation[] = [];
 
-    for (const date of dates) {
+    // Parallelize per-date historical measurement requests with controlled concurrency
+    // to reduce overall latency while avoiding flooding OpenAQ with unlimited requests.
+    const concurrency = parseInt(process.env.OPENAQ_CONCURRENCY || '4', 10);
+    const seriesResults: Array<DailyObservation | null> = [];
+
+    // helper to process one date
+    const fetchForDate = async (date: string): Promise<DailyObservation | null> => {
       const pollutants = await this.getHistoricalMeasurements(locationId, date);
-      if (!pollutants) continue;
-
+      if (!pollutants) return null;
       const aqiRes = calculateIndianAQI(pollutants);
-      if (!aqiRes.isValid) continue;
-
-      series.push({
+      if (!aqiRes.isValid) return null;
+      return {
         date,
         pollutants,
         aqiResult: aqiRes,
         isValidAqi: true,
         dominantPollutant: aqiRes.dominantPollutant,
         source: 'OpenAQ v3 Historical Measurements'
-      });
+      };
+    };
+
+    // Process dates in chunks of size `concurrency` to limit parallel requests
+    for (let i = 0; i < dates.length; i += concurrency) {
+      const chunk = dates.slice(i, i + concurrency);
+      const promises = chunk.map(d => fetchForDate(d));
+      // Wait for the chunk to complete; failures within fetchForDate resolve to null
+      const results = await Promise.all(promises);
+      seriesResults.push(...results);
     }
 
+    // Preserve date ordering and filter out nulls (failed/absent measurements)
+    const series = seriesResults.filter((s): s is DailyObservation => s !== null);
     return series.length > 0 ? series : [];
   }
 
@@ -490,7 +539,7 @@ export class OpenAqAdapter implements AirQualityProvider {
     }
 
     try {
-      const response = await axios.get(`${this.baseUrl}/locations`, {
+      const response = await this.scheduledGet(`${this.baseUrl}/locations`, {
         params: {
           countries_id: 9, // India country ID in OpenAQ v3
           limit: options?.limit || 50
